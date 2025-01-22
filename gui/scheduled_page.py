@@ -150,8 +150,13 @@ class ScheduledPage(QWidget):
     def refresh_list(self):
         """Обновление списка запланированных загрузок"""
         try:
-            # Перезагружаем список
-            self.load_scheduled_uploads()
+            self.list_widget.clear()
+            for upload in self.scheduled_uploads:
+                item = QListWidgetItem()
+                widget = self.create_upload_item(upload)
+                item.setSizeHint(widget.sizeHint())
+                self.list_widget.addItem(item)
+                self.list_widget.setItemWidget(item, widget)
         except Exception as e:
             logger.error(f"Ошибка при обновлении списка: {str(e)}")
             
@@ -231,4 +236,16 @@ class ScheduledPage(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             self.scheduled_uploads.remove(upload)
             self.save_scheduled()
-            self.refresh_list() 
+            self.refresh_list()
+            
+    def load_scheduled_uploads(self):
+        """Загрузка запланированных загрузок"""
+        try:
+            if os.path.exists('data/scheduled_uploads.json'):
+                with open('data/scheduled_uploads.json', 'r', encoding='utf-8') as f:
+                    self.scheduled_uploads = json.load(f)
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке запланированных загрузок: {str(e)}")
+            self.scheduled_uploads = []
+
+        self.refresh_list() 
