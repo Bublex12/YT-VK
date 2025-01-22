@@ -11,6 +11,7 @@ import logging
 import os
 import json
 from core.database import VideoDatabase
+from core.vk.events import UploadEvent
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,12 @@ class DownloadPage(QWidget):
         
         self.load_downloaded_videos()
         self.init_ui()
+        
+        # Подписываемся на события загрузки
+        self.vk_api.on(UploadEvent.STARTED, self._on_upload_started)
+        self.vk_api.on(UploadEvent.PROGRESS, self._on_upload_progress)
+        self.vk_api.on(UploadEvent.COMPLETED, self._on_upload_completed)
+        self.vk_api.on(UploadEvent.FAILED, self._on_upload_failed)
         
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -220,6 +227,7 @@ class DownloadPage(QWidget):
             self.downloaded_videos[video_id] = {
                 'title': title,
                 'path': video_path,
+                'source_url': self.url_input.text().strip(),
                 'uploaded_to_vk': False
             }
             self.save_downloaded_videos()
@@ -407,4 +415,67 @@ class DownloadPage(QWidget):
             
             layout.addWidget(stat_widget)
         
-        self.layout().insertWidget(1, stats_frame) 
+        self.layout().insertWidget(1, stats_frame)
+
+    def _on_upload_started(self, task):
+        """Обработка начала загрузки"""
+        # Добавляем индикатор в сайдбар
+        self.window().sidebar.add_upload_indicator(task['title'])
+        
+        # Обновляем статус в списке
+        item = self._find_video_item(task['path'])
+        if item:
+            item.set_status("Загрузка...")
+            item.show_progress_bar()
+            
+    def _on_upload_progress(self, task):
+        """Обработка прогресса загрузки"""
+        item = self._find_video_item(task['path'])
+        if item:
+            item.update_progress(task['progress'])
+            
+    def _on_upload_completed(self, task, result):
+        """Обработка завершения загрузки"""
+        # Удаляем индикатор из сайдбара
+        self.window().sidebar.remove_upload_indicator(task['title'])
+        
+        # Обновляем статус в списке
+        item = self._find_video_item(task['path'])
+        if item:
+            item.set_status("Загружено")
+            item.hide_progress_bar()
+            
+        # Показываем уведомление
+        self.show_notification(
+            f"Видео {task['title']} успешно загружено",
+            type="success"
+        )
+        
+    def _on_upload_failed(self, task):
+        """Обработка ошибки загрузки"""
+        # Удаляем индикатор из сайдбара
+        self.window().sidebar.remove_upload_indicator(task['title'])
+        
+        # Обновляем статус в списке
+        item = self._find_video_item(task['path'])
+        if item:
+            item.set_status(f"Ошибка: {task.get('error', 'Неизвестная ошибка')}")
+            item.show_retry_button()
+            
+        # Показываем уведомление
+        self.show_notification(
+            f"Ошибка загрузки видео {task['title']}",
+            type="error"
+        )
+
+    def _find_video_item(self, video_path):
+        for i in range(self.videos_list.count()):
+            item = self.videos_list.item(i)
+            widget = self.videos_list.itemWidget(item)
+            if widget.video_path == video_path:
+                return widget
+        return None
+
+    def show_notification(self, message, type):
+        # Implementation of show_notification method
+        pass 

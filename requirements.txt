@@ -1,5 +1,7 @@
-yt-dlp>=2023.12.30
+PyQt6>=6.4.0
+PyQt6-WebEngine
 requests>=2.31.0
+requests-toolbelt
 python-dotenv>=1.0.0
-tqdm>=4.66.1
-PyQt6>=6.4.0 
+yt-dlp>=2023.12.30
+tqdm>=4.66.1 
