@@ -63,4 +63,29 @@ class TokenManager:
                 logger.warning("Токен истек")
                 return None
                 
-        return self.token_data.get('access_token') 
+        return self.token_data.get('access_token')
+    
+    def get_user_id(self):
+        """Получение ID пользователя"""
+        return self.token_data.get('user_id')
+    
+    def save_token(self, token):
+        """Сохранение токена в файл"""
+        try:
+            with open(self.token_file, 'w') as f:
+                json.dump({'access_token': token}, f)
+            logger.info("Токен успешно сохранен")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении токена: {str(e)}")
+            return False
+            
+    def clear_token(self):
+        """Удаление токена"""
+        self.token_data = {}
+        try:
+            if os.path.exists(self.token_file):
+                os.remove(self.token_file)
+                logger.info("Токен успешно удален")
+        except Exception as e:
+            logger.error(f"Ошибка при удалении токена: {str(e)}") 

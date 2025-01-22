@@ -2,11 +2,21 @@ import sqlite3
 import json
 from datetime import datetime
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 class VideoDatabase:
-    def __init__(self, db_path='videos.db'):
+    def __init__(self, db_path='data/videos.db'):
+        """
+        Инициализация базы данных
+        :param db_path: путь к файлу базы данных
+        """
+        # Создаем директорию для базы данных
+        db_dir = os.path.dirname(db_path)
+        if db_dir:  # Проверяем, что путь не пустой
+            os.makedirs(db_dir, exist_ok=True)
+            
         self.db_path = db_path
         self.init_db()
     
@@ -31,6 +41,19 @@ class VideoDatabase:
                         download_date TEXT,
                         download_path TEXT,
                         metadata TEXT
+                    )
+                ''')
+                
+                # Таблица для хранения информации о загруженных видео
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS uploaded_videos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        local_path TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        vk_owner_id INTEGER,
+                        vk_video_id INTEGER,
+                        vk_url TEXT,
+                        upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
                 
@@ -131,4 +154,35 @@ class VideoDatabase:
                 
         except Exception as e:
             logger.error(f"Ошибка при обновлении пути скачивания: {str(e)}")
-            raise 
+            raise
+
+    def add_uploaded_video(self, local_path, title, vk_owner_id, vk_video_id, vk_url):
+        """Добавление информации о загруженном видео"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO uploaded_videos 
+                    (local_path, title, vk_owner_id, vk_video_id, vk_url)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (local_path, title, vk_owner_id, vk_video_id, vk_url))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении видео в БД: {str(e)}")
+            return False
+            
+    def get_video_info(self, local_path):
+        """Получение информации о загруженном видео"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT vk_owner_id, vk_video_id, vk_url
+                    FROM uploaded_videos
+                    WHERE local_path = ?
+                ''', (local_path,))
+                return cursor.fetchone()
+        except Exception as e:
+            logger.error(f"Ошибка при получении информации о видео: {str(e)}")
+            return None 

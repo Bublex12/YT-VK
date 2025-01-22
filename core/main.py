@@ -5,10 +5,10 @@ import requests
 import subprocess
 from typing import Optional, Tuple
 from yt_dlp import YoutubeDL
-from config import *
+from .config import OUTPUT_DIR
+from .database import VideoDatabase
 import time
 import random
-from database import VideoDatabase
 
 # Настройка логирования
 logging.basicConfig(
@@ -178,6 +178,15 @@ def get_available_formats(url: str) -> list:
         logger.error(f"Ошибка при получении форматов: {str(e)}")
         raise
 
+def sanitize_filename(filename: str) -> str:
+    """Очищает имя файла от недопустимых символов"""
+    # Заменяем недопустимые символы на безопасные
+    invalid_chars = '<>:"/\\|?*'
+    for char in invalid_chars:
+        filename = filename.replace(char, '_')
+    # Ограничиваем длину имени файла
+    return filename[:100]  # Ограничиваем длину, чтобы избежать проблем с длинными путями
+
 def download_youtube_video(url: str, output_dir: str = OUTPUT_DIR, title: str = None) -> Tuple[str, Optional[str]]:
     """
     Скачивание видео с YouTube используя yt-dlp
@@ -191,7 +200,7 @@ def download_youtube_video(url: str, output_dir: str = OUTPUT_DIR, title: str = 
         # Получаем информацию о видео для создания папки
         with YoutubeDL({'quiet': True}) as ydl:
             info = ydl.extract_info(url, download=False)
-            video_title = title or info['title']
+            video_title = sanitize_filename(title or info['title'])  # Очищаем название
             timestamp = f"{int(time.time())}_{random.randint(1000, 9999)}"
             video_dir = os.path.join(output_dir, f"{video_title}_{timestamp}")
             
