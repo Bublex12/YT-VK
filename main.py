@@ -178,20 +178,20 @@ def get_available_formats(url: str) -> list:
         logger.error(f"Ошибка при получении форматов: {str(e)}")
         raise
 
-def download_youtube_video(url: str, output_dir: str = OUTPUT_DIR, format_id: str = None) -> Tuple[str, Optional[str]]:
+def download_youtube_video(url: str, output_dir: str = OUTPUT_DIR, title: str = None) -> Tuple[str, Optional[str]]:
     """
     Скачивание видео с YouTube используя yt-dlp
+    Пытается скачать в Full HD (1080p), если недоступно - берет максимальное качество
     """
     logger.debug(f"Начало функции download_youtube_video с URL: {url}")
     try:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-            logger.debug(f"Создана директория: {output_dir}")
-        
+            
         # Получаем информацию о видео для создания папки
         with YoutubeDL({'quiet': True}) as ydl:
             info = ydl.extract_info(url, download=False)
-            video_title = "".join(c for c in info['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            video_title = title or info['title']
             timestamp = f"{int(time.time())}_{random.randint(1000, 9999)}"
             video_dir = os.path.join(output_dir, f"{video_title}_{timestamp}")
             
@@ -199,79 +199,73 @@ def download_youtube_video(url: str, output_dir: str = OUTPUT_DIR, format_id: st
             os.makedirs(video_dir, exist_ok=True)
             logger.debug(f"Создана папка для видео: {video_dir}")
             
-        # Проверяем наличие ffmpeg
-        has_ffmpeg = check_ffmpeg()
-        
-        # Проверяем наличие звука перед скачиванием
-        formats = get_available_formats(url)
-        if not any(f['has_audio'] for f in formats):
-            logger.warning(f"Внимание: видео не содержит звуковой дорожки: {url}")
-        
-        # Настраиваем параметры в зависимости от наличия ffmpeg и выбранного формата
-        if format_id:
-            format_spec = format_id
-            # Если формат без звука, пытаемся добавить лучшую аудиодорожку
-            if not any(f['has_audio'] for f in formats if f['format_id'] == format_id):
-                format_spec = f"{format_id}+bestaudio/bestaudio"
-        elif has_ffmpeg:
-            format_spec = 'bestvideo[height>=1080]+bestaudio/best[height>=1080]/best'
-        else:
-            format_spec = 'best[height>=1080]/best'
-            
-        # Определяем постпроцессоры
-        postprocessors = []
-        if has_ffmpeg:
-            postprocessors.extend([
-                {
-                    'key': 'FFmpegVideoConvertor',
-                    'preferedformat': 'mp4',
-                },
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'aac',
-                },
-                {
-                    'key': 'FFmpegMetadata',
-                    'add_metadata': True,
-                },
-            ])
-            
+        # Сначала пробуем скачать в Full HD
         ydl_opts = {
-            'format': format_spec,
-            'outtmpl': f'{video_dir}/%(title)s.%(ext)s',
-            'progress_hooks': [download_progress_hook],
+            'format': 'bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/best[height=1080][ext=mp4]/best[ext=mp4]/best',
+            'outtmpl': os.path.join(video_dir, f"{video_title}.%(ext)s"),
+            'merge_output_format': 'mp4',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
             'quiet': True,
             'no_warnings': True,
             'writethumbnail': True,
-            'postprocessors': postprocessors,
-            'merge_output_format': 'mp4' if has_ffmpeg else None,
-            'keepvideo': True,
-            'postprocessor_args': [
-                '-acodec', 'aac',
-                '-vcodec', 'copy'
-            ] if has_ffmpeg else [],
         }
         
-        # Скачиваем видео
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_path = os.path.join(video_dir, f"{info['title']}.mp4")
-            
-            # Скачиваем превью
-            thumbnail_url = info.get('thumbnail')
-            thumbnail_path = None
-            if thumbnail_url:
-                thumbnail_path = download_thumbnail(thumbnail_url, video_dir, info['title'])
-            
-            logger.info(f"Видео успешно скачано: {video_path}")
-            if thumbnail_path:
-                logger.info(f"Превью сохранено: {thumbnail_path}")
-            
-            return video_path, thumbnail_path
-            
+        try:
+            # Пробуем скачать в Full HD
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                logger.info("Видео успешно скачано в Full HD качестве")
+        except Exception as e:
+            logger.info("Не удалось скачать в Full HD, пробуем максимальное качество")
+            # Если не получилось, скачиваем в максимальном качестве
+            ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                logger.info("Видео успешно скачано в максимальном доступном качестве")
+        
+        video_path = os.path.join(video_dir, f"{video_title}.mp4")
+        video_path = os.path.normpath(video_path)
+        
+        # Проверяем существование файла
+        if not os.path.exists(video_path):
+            logger.error(f"Файл не найден после скачивания: {video_path}")
+            # Пробуем найти файл в директории
+            mp4_files = [f for f in os.listdir(video_dir) if f.endswith('.mp4')]
+            if mp4_files:
+                video_path = os.path.join(video_dir, mp4_files[0])
+                video_path = os.path.normpath(video_path)
+                logger.info(f"Найден альтернативный файл: {video_path}")
+            else:
+                raise FileNotFoundError(f"Видео не найдено в директории: {video_dir}")
+        
+        # Удаляем все лишние файлы, оставляем только MP4 и превью
+        for file in os.listdir(video_dir):
+            file_path = os.path.join(video_dir, file)
+            if file_path != video_path and not file.endswith(('.jpg', '.png', '.webp')):
+                try:
+                    os.remove(file_path)
+                    logger.debug(f"Удален временный файл: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить файл {file_path}: {str(e)}")
+        
+        # Скачиваем превью
+        thumbnail_url = info.get('thumbnail')
+        thumbnail_path = None
+        if thumbnail_url:
+            thumbnail_path = download_thumbnail(thumbnail_url, video_dir, video_title)
+        
+        logger.info(f"Видео успешно скачано: {video_path}")
+        if thumbnail_path:
+            logger.info(f"Превью сохранено: {thumbnail_path}")
+        
+        return video_path, thumbnail_path
+        
     except Exception as e:
         logger.error(f"Ошибка при скачивании видео: {str(e)}")
-        logger.debug(f"Полный стек ошибки:\n{traceback.format_exc()}")
+        logger.error(f"Полный стек ошибки:\n{traceback.format_exc()}")
         raise
 
 def download_progress_hook(d):
